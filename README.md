@@ -1,4 +1,4 @@
-# Event Guest Manager - Developer Test
+# Developer Test
 
 Thank you for giving me the opportunity.
 
