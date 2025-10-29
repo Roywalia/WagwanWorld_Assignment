@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+// src/lib/api.ts
+const API_BASE_URL = 'http://localhost:8080/api/v1';
 
 export interface Guest {
 	id: number;
@@ -16,57 +17,58 @@ export interface CreateGuestData {
 	status?: 'pending' | 'attending' | 'declined';
 }
 
-// BUG #3 (Frontend part): Uses 'filter' parameter but backend expects 'status'
-export async function getGuests(statusFilter?: string): Promise<Guest[]> {
+// Fixed: use ?status= not ?filter=
+export async function getGuests(status?: string, search?: string): Promise<Guest[]> {
 	let url = `${API_BASE_URL}/guests`;
-	
-	if (statusFilter) {
-		url += `?filter=${statusFilter}`;  // Bug: should be 'status' not 'filter'
-	}
+	const params = new URLSearchParams();
+	if (status) params.append('status', status);
+	if (search) params.append('search', search);
+	if (params.toString()) url += `?${params.toString()}`;
 
-	const response = await fetch(url);
-	
-	if (!response.ok) {
-		throw new Error('Failed to fetch guests');
-	}
-
-	return response.json();
-}
-
-export async function getGuest(id: number): Promise<Guest> {
-	const response = await fetch(`${API_BASE_URL}/guests/${id}`);
-	
-	if (!response.ok) {
-		throw new Error('Failed to fetch guest');
-	}
-
-	return response.json();
+	const res = await fetch(url);
+	if (!res.ok) throw new Error('Failed to fetch guests');
+	return res.json();
 }
 
 export async function createGuest(data: CreateGuestData): Promise<Guest> {
-	const response = await fetch(`${API_BASE_URL}/guests`, {
+	const res = await fetch(`${API_BASE_URL}/guests`, {
 		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json'
-		},
+		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(data)
 	});
-
-	if (!response.ok) {
-		const error = await response.json();
-		throw new Error(error.error || 'Failed to create guest');
+	if (!res.ok) {
+		const err = await res.json();
+		throw new Error(err.error || err.message || 'Failed to create guest');
 	}
-
-	return response.json();
+	return res.json();
 }
 
 export async function deleteGuest(id: number): Promise<void> {
-	const response = await fetch(`${API_BASE_URL}/guests/${id}`, {
-		method: 'DELETE'
-	});
-
-	if (!response.ok) {
-		throw new Error('Failed to delete guest');
-	}
+	const res = await fetch(`${API_BASE_URL}/guests/${id}`, { method: 'DELETE' });
+	if (!res.ok) throw new Error('Failed to delete guest');
 }
 
+// function to create a new event
+export async function createEvent(data: {
+	title: string;
+	description?: string;
+	event_date: string;
+	location?: string;
+}): Promise<any> {
+	const res = await fetch(`${API_BASE_URL}/events`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(data),
+	});
+	if (!res.ok) {
+		const err = await res.json();
+		throw new Error(err.error || 'Failed to create event');
+	}
+	return res.json();
+}
+
+export async function getEvents(): Promise<any[]> {
+	const res = await fetch(`${API_BASE_URL}/events`);
+	if (!res.ok) throw new Error('Failed to fetch events');
+	return res.json();
+}

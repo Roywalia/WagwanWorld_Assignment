@@ -20,8 +20,8 @@ Create a new page that allows anyone to RSVP for the event.
 
 2. **RSVP Form**
    - Name
-   - Email 
-   - Phone 
+   - Email
+   - Phone
    - RSVP Status selection:
      - "Yes, I'll be there!" (attending)
      - "Maybe" (pending)

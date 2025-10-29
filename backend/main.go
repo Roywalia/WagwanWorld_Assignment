@@ -19,7 +19,7 @@ func main() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "postgres")
-	dbPassword := getEnv("DB_PASSWORD", "postgres")
+	dbPassword := getEnv("DB_PASSWORD", "123456")
 	dbName := getEnv("DB_NAME", "eventguests")
 
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
@@ -49,21 +49,29 @@ func main() {
 
 	// Initialize handlers
 	guestHandler := handlers.NewGuestHandler(db)
+	eventHandler := handlers.NewEventHandler(db)
 
 	// Setup router
 	router := mux.NewRouter()
+	api := router.PathPrefix("/api/v1").Subrouter()
 
+	// Events
+	api.HandleFunc("/events", eventHandler.GetEvents).Methods("GET")
+	api.HandleFunc("/events/{id}/rsvp", eventHandler.CreateRSVP).Methods("POST")
+	
 	// API routes
-	api := router.PathPrefix("/api").Subrouter()
+	
 	api.HandleFunc("/guests", guestHandler.GetGuests).Methods("GET")
 	api.HandleFunc("/guests", guestHandler.CreateGuest).Methods("POST")
-	api.HandleFunc("/guests/{id}", guestHandler.GetGuest).Methods("GET")
+	api.HandleFunc("/guests/{id}", guestHandler.GetGuests).Methods("GET")
 	api.HandleFunc("/guests/{id}", guestHandler.DeleteGuest).Methods("DELETE")
+
+	api.HandleFunc("/events", eventHandler.CreateEvent).Methods("POST")
 
 	// CORS setup
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:4173"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		AllowCredentials: true,
 	})
@@ -76,9 +84,8 @@ func main() {
 }
 
 func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	return value
+	return defaultValue
 }
