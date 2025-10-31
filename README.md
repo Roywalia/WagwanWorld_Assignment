@@ -1,19 +1,6 @@
-# Event Guest Manager - Developer Test
+# Developer Test
 
-Welcome! 👋
-
-This is a take-home coding test where you'll work with a full-stack event management application.
-
-## 📋 What You'll Build
-
-Your task is to **design and implement a public RSVP page** where guests can register for an event.
-
-You'll be working with:
-- **Backend**: Go + PostgreSQL
-- **Frontend**: Svelte 5 + TypeScript + TailwindCSS
-- **Database**: PostgreSQL (Docker)
-
-## NOTE: Feel free to use any tools at your disposal  but we highly value understanding of the code which is written 
+Thank you for giving me the opportunity.
 
 ## 🚀 Getting Started
 
