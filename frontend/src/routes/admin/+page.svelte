@@ -1,26 +1,14 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { getGuests, deleteGuest, createEvent, getEvents, type Guest } from '$lib/api';
+	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import type { ActionResult } from '@sveltejs/kit';
 	import Swal from 'sweetalert2';
 
-	/* -------------------------------------------------
-	 *  VIEW TOGGLE – boolean proxy
-	 * ------------------------------------------------- */
-	let showEvents = $state(false);
+	const { data } = $props<{ data: any }>();
 
-	// === Guests ===
-	let guests: Guest[] = $state([]);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
-	let statusFilter = $state('');
-	let searchQuery = $state('');
-
-	// === Events ===
-	let events: any[] = $state([]);
-	let loadingEvents = $state(true);
-	let errorEvents = $state<string | null>(null);
-
-	// === Event Form ===
+	let showEvents = $state(data.view === 'events');
+	let guests = $state<any[]>([]);
+	let events = $state<any[]>([]);
 	let showEventForm = $state(false);
 	let eventTitle = $state('');
 	let eventDesc = $state('');
@@ -28,94 +16,135 @@
 	let eventLocation = $state('');
 	let eventError = $state<string | null>(null);
 	let eventSubmitting = $state(false);
+	let statusFilter = $state('');
+	let searchQuery = $state('');
 
-	onMount(() => {
-		if (!showEvents) loadGuests();
-		else loadEvents();
-	});
+	//LOAD DATA BASED ON CURRENT URL STATE
+	async function loadData() {
+		const url = new URL(window.location.href);
+		const currentView = url.searchParams.get('view') === 'events' ? 'events' : 'guests';
+		const currentStatus = url.searchParams.get('status') || '';
+		const currentSearch = url.searchParams.get('search') || '';
 
-	let searchTimeout: any;
+		try {
+			if (currentView === 'events') {
+				const res = await fetch('http://localhost:8080/api/v1/events');
+				if (res.ok) {
+					events = await res.json();
+				}
+			} else {
+				const guestsUrl = new URL('http://localhost:8080/api/v1/guests');
+				if (currentStatus) guestsUrl.searchParams.set('status', currentStatus);
+				if (currentSearch) guestsUrl.searchParams.set('search', currentSearch);
+				
+				const res = await fetch(guestsUrl);
+				if (res.ok) {
+					guests = await res.json();
+				}
+			}
+		} catch (error) {
+			console.error('Failed to load data:', error);
+		}
+	}
+
+	//INITIAL DATA LOAD AND REACTIVE UPDATES
 	$effect(() => {
-		clearTimeout(searchTimeout);
-		searchTimeout = setTimeout(() => {
-			if (!showEvents) loadGuests();
-		}, 300);
+		// Initial load
+		loadData();
+
+		// Set up a more reliable way to detect URL changes
+		const handleUrlChange = () => {
+			loadData();
+		};
+
+		// Listen to popstate (browser back/forward) and custom events
+		window.addEventListener('popstate', handleUrlChange);
+		
+		// Also reload when invalidateAll is called
+		const interval = setInterval(() => {
+			// This ensures data is reloaded after actions
+			loadData();
+		}, 100);
+
+		return () => {
+			window.removeEventListener('popstate', handleUrlChange);
+			clearInterval(interval);
+		};
 	});
 
-	// Reload when view toggles
+	//URL Sync for Filters and View
 	$effect(() => {
-		if (showEvents) loadEvents();
-		else loadGuests();
+		const url = new URL(window.location.href);
+		
+		if (showEvents) {
+			url.searchParams.set('view', 'events');
+			// Remove guest filters when switching to events
+			url.searchParams.delete('status');
+			url.searchParams.delete('search');
+			statusFilter = '';
+			searchQuery = '';
+		} else {
+			url.searchParams.delete('view');
+			// Set current filters in URL
+			if (statusFilter) {
+				url.searchParams.set('status', statusFilter);
+			} else {
+				url.searchParams.delete('status');
+			}
+			if (searchQuery) {
+				url.searchParams.set('search', searchQuery);
+			} else {
+				url.searchParams.delete('search');
+			}
+		}
+		
+		history.replaceState(null, '', url.toString());
+		// Force data reload after URL change
+		setTimeout(() => loadData(), 50);
 	});
 
-	// Load guests
-	async function loadGuests() {
-		try {
-			loading = true;
-			error = null;
-			guests = await getGuests(statusFilter || undefined, searchQuery || undefined);
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load guests';
-		} finally {
-			loading = false;
+	//Initialize state from URL on load
+	$effect(() => {
+		const url = new URL(window.location.href);
+		showEvents = url.searchParams.get('view') === 'events';
+		if (!showEvents) {
+			statusFilter = url.searchParams.get('status') || '';
+			searchQuery = url.searchParams.get('search') || '';
 		}
-	}
+	});
 
-	// Load events
-	async function loadEvents() {
-		try {
-			loadingEvents = true;
-			errorEvents = null;
-			events = await getEvents();
-		} catch (e) {
-			errorEvents = e instanceof Error ? e.message : 'Failed to load events';
-		} finally {
-			loadingEvents = false;
+	//Auto-reload when filters change
+	$effect(() => {
+		if (!showEvents) {
+			// Debounce filter changes to avoid too many requests
+			const timeoutId = setTimeout(() => {
+				const url = new URL(window.location.href);
+				if (statusFilter) {
+					url.searchParams.set('status', statusFilter);
+				} else {
+					url.searchParams.delete('status');
+				}
+				if (searchQuery) {
+					url.searchParams.set('search', searchQuery);
+				} else {
+					url.searchParams.delete('search');
+				}
+				history.replaceState(null, '', url.toString());
+				loadData();
+			}, 300);
+
+			return () => clearTimeout(timeoutId);
 		}
-	}
+	});
 
-	// Create event
-	async function handleEventSubmit(e: Event) {
-		e.preventDefault();
-		eventError = null;
-
-		if (!eventTitle.trim()) return eventError = 'Title is required';
-		if (!eventDate) return eventError = 'Date is required';
-
-		try {
-			eventSubmitting = true;
-			await createEvent({
-				title: eventTitle,
-				description: eventDesc,
-				event_date: new Date(eventDate).toISOString(),
-				location: eventLocation
-			});
-			resetEventForm();
-			await loadEvents();
-			Swal.fire('Success', 'Event created!', 'success');
-		} catch (e: any) {
-			eventError = e.message || 'Failed to create event';
-		} finally {
-			eventSubmitting = false;
-		}
-	}
-
+	//HELPERS
 	function resetEventForm() {
 		eventTitle = '';
 		eventDesc = '';
 		eventDate = '';
 		eventLocation = '';
+		eventError = null;
 		showEventForm = false;
-	}
-
-	async function handleDelete(id: number) {
-		if (!confirm('Delete this guest?')) return;
-		try {
-			await deleteGuest(id);
-			await loadGuests();
-		} catch (e) {
-			alert(e instanceof Error ? e.message : 'Failed to delete');
-		}
 	}
 
 	function getBadge(status: string) {
@@ -124,7 +153,7 @@
 			declined: 'bg-red-100 text-red-800',
 			pending: 'bg-yellow-100 text-yellow-800'
 		};
-		return map[status] || map.pending;
+		return map[status] ?? map.pending;
 	}
 
 	function formatDate(iso: string) {
@@ -140,6 +169,41 @@
 	function safeString(value: any): string {
 		return value && typeof value === 'object' && value.String ? value.String : (value || '-');
 	}
+
+	//FORM HANDLERS
+	function handleEventFormSubmit() {
+		eventSubmitting = true;
+		eventError = null;
+	}
+
+	function handleEventFormResult(result: ActionResult) {
+		eventSubmitting = false;
+		if (result.type === 'success') {
+			resetEventForm();
+			// Reload events data after successful creation
+			loadData();
+			Swal.fire('Success', 'Event created!', 'success');
+		} else if (result.type === 'failure') {
+			eventError = result.data?.error ?? 'Failed to create event';
+		} else if (result.type === 'error') {
+			eventError = result.error?.message ?? 'An error occurred';
+		} else {
+			eventError = 'Failed to create event';
+		}
+	}
+
+	// Fixed enhance configuration
+	function enhanceFunction({ formData, action, cancel }: { 
+		formData: FormData; 
+		action: URL; 
+		cancel: () => void 
+	}) {
+		handleEventFormSubmit();
+		
+		return async ({ result }: { result: ActionResult }) => {
+			handleEventFormResult(result);
+		};
+	}
 </script>
 
 <div class="min-h-screen bg-gray-50 py-8">
@@ -149,9 +213,9 @@
 			<p class="text-gray-600">Manage events and guest RSVPs</p>
 		</div>
 
-		<!-- Filters Bar: Toggle (left) | Dropdown + Search + Button (right) -->
+		<!-- Filters Bar -->
 		<div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-wrap gap-4 items-center justify-between">
-			<!-- LEFT: Toggle -->
+			<!-- Toggle -->
 			<div class="flex items-center gap-3">
 				<span class="text-sm font-medium text-gray-700">Guests</span>
 				<label class="relative inline-flex items-center cursor-pointer">
@@ -164,7 +228,7 @@
 				<span class="text-sm font-medium text-gray-700">Events</span>
 			</div>
 
-			<!-- RIGHT: Filters + Add Event Button -->
+			<!-- Filters + Add Button -->
 			<div class="flex gap-4 items-center flex-1 justify-end">
 				{#if !showEvents}
 					<select bind:value={statusFilter} class="border rounded-md px-3 py-2">
@@ -210,11 +274,16 @@
 				{#if eventError}
 					<div class="bg-red-50 text-red-700 p-3 rounded mb-4">{eventError}</div>
 				{/if}
-				<form onsubmit={handleEventSubmit} class="grid md:grid-cols-2 gap-4">
-					<input bind:value={eventTitle} placeholder="Event Title *" required class="customInput" />
-					<input bind:value={eventLocation} placeholder="Location" class="customInput" />
-					<input bind:value={eventDate} type="datetime-local" required class="customInput" min={new Date().toISOString().slice(0, 16)}/>
-					<textarea bind:value={eventDesc} placeholder="Description (optional)" rows="2" class="customInput md:col-span-2"></textarea>
+				<form 
+					method="POST" 
+					action="?/createEvent" 
+					use:enhance={enhanceFunction}
+					class="grid md:grid-cols-2 gap-4"
+				>
+					<input name="title" bind:value={eventTitle} placeholder="Event Title *" required class="customInput" />
+					<input name="location" bind:value={eventLocation} placeholder="Location" class="customInput" />
+					<input name="event_date" bind:value={eventDate} type="datetime-local" required min={new Date().toISOString().slice(0, 16)} class="customInput" />
+					<textarea name="description" bind:value={eventDesc} placeholder="Description (optional)" rows="2" class="customInput md:col-span-2"></textarea>
 					<div class="md:col-span-2 flex gap-2">
 						<button type="submit" disabled={eventSubmitting} class="bg-purple-600 text-white px-6 py-2 rounded-md">
 							{eventSubmitting ? 'Creating...' : 'Create Event'}
@@ -230,11 +299,7 @@
 		<!-- Events Table -->
 		{#if showEvents}
 			<div class="bg-white rounded-lg shadow-sm overflow-hidden">
-				{#if loadingEvents}
-					<p class="p-8 text-center text-gray-500">Loading events...</p>
-				{:else if errorEvents}
-					<p class="p-8 text-center text-red-600">{errorEvents}</p>
-				{:else if events.length === 0}
+				{#if events.length === 0}
 					<p class="p-8 text-center text-gray-500">No events yet.</p>
 				{:else}
 					<table class="w-full">
@@ -270,11 +335,7 @@
 		<!-- Guest Table -->
 		{#if !showEvents}
 			<div class="bg-white rounded-lg shadow-sm overflow-hidden">
-				{#if loading}
-					<p class="p-8 text-center text-gray-500">Loading...</p>
-				{:else if error}
-					<p class="p-8 text-center text-red-600">{error}</p>
-				{:else if guests.length === 0}
+				{#if guests.length === 0}
 					<p class="p-8 text-center text-gray-500">
 						{searchQuery || statusFilter ? 'No guests match your search.' : 'No guests yet.'}
 					</p>
@@ -301,7 +362,16 @@
 										</span>
 									</td>
 									<td class="px-6 py-4">
-										<button onclick={() => handleDelete(g.id)} class="text-red-600 hover:text-red-800">Delete</button>
+										<form method="POST" action="?/deleteGuest" use:enhance={({ action }) => {
+											return async ({ result }) => {
+												await loadData();
+											};
+										}} class="inline">
+											<input type="hidden" name="id" value={g.id} />
+											<button type="submit" class="text-red-600 hover:text-red-800">
+												Delete
+											</button>
+										</form>
 									</td>
 								</tr>
 							{/each}
@@ -311,7 +381,7 @@
 			</div>
 
 			<!-- Stats -->
-			{#if !loading && guests.length > 0}
+			{#if guests.length > 0}
 				<div class="mt-6 bg-white p-4 rounded-lg shadow-sm text-sm">
 					<span>Total: <strong>{guests.length}</strong></span> |
 					<span>Attending: <strong class="text-green-600">{guests.filter(g => g.status === 'attending').length}</strong></span> |
